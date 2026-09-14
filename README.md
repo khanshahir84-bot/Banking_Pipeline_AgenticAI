@@ -90,3 +90,15 @@ The three domain servers expose explicit tool metadata (name, description, requi
 ### Audit and incident triage
 
 Use the response `trace_id` or `X-Trace-Id` header to correlate JSON events. The session store contains redacted user/assistant messages and the `workflow_audit` table stores trace ID, user ID, intent, tool, and completion state—never an access token or raw prompt. Query audit data only through approved support tooling with appropriate customer-data controls.
+
+## Demonstration database
+
+A seeded SQLite database has been created at `/data/banking_chat.db` in this environment. It has 10 demonstration customers and accounts, plus **50 transaction records** (five per account); the development token's `customer-42` is included. The Accounts and Transactions MCP servers now query this data rather than returning hard-coded records.
+
+To create the same idempotent demonstration dataset on another host, run:
+
+```bash
+python scripts/seed_database.py --database /data/banking_chat.db
+```
+
+Use `--reset` only to deliberately replace the demonstration banking tables. The Docker command runs this seeder before Uvicorn and does not overwrite an existing dataset. These values are synthetic and must never be treated as production banking data.

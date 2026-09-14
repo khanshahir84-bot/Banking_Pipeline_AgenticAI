@@ -7,7 +7,11 @@ def test_classification():
     assert classify("What is my balance?") == "balance"
     assert classify("I want weather") is None
 
-def test_balance_agent_and_scope():
+def test_balance_agent_and_scope(tmp_path, monkeypatch):
+    from scripts.seed_database import seed
+
+    monkeypatch.setattr(settings, "database_path", str(tmp_path / "banking_chat.db"))
+    seed(settings.database_path)
     user={"sub":"customer-42","scope":"accounts:read"}
     result=asyncio.run(CoordinatorAgent().run("show my balance",user,[]))
     assert result.intent == "balance" and result.tool == "balance_enquiry"

@@ -1,11 +1,8 @@
-"""MCP domain tool servers and their explicit, inspectable tool contracts.
-
-These in-process adapters are fully functional demonstration implementations.
-In production retain the same contracts but replace their bodies with mTLS-authenticated
-calls to the bank's core systems; no agent should connect to a core system directly.
-"""
+"""MCP domain tool servers with explicit, inspectable tool contracts."""
 from dataclasses import dataclass
 from typing import Any
+
+from ..banking_data import balance_for, recent_transactions_for
 
 
 @dataclass(frozen=True)
@@ -24,7 +21,6 @@ class ToolDefinition:
 
 class BaseMCPServer:
     """Shared MCP-style capability declaration for discovery and policy review."""
-
     name: str
     tools: tuple[ToolDefinition, ...]
 
@@ -37,7 +33,7 @@ class AccountsMCPServer(BaseMCPServer):
     tools = (ToolDefinition("balance_enquiry", "Return available account balance", "accounts:read"),)
 
     def balance_enquiry(self, customer_id: str) -> ToolResult:
-        return ToolResult(self.name, "balance_enquiry", {"customer_id": customer_id, "currency": "USD", "available_balance": "1,250.00"})
+        return ToolResult(self.name, "balance_enquiry", balance_for(customer_id))
 
 
 class TransactionsMCPServer(BaseMCPServer):
@@ -48,7 +44,7 @@ class TransactionsMCPServer(BaseMCPServer):
     )
 
     def transaction_details(self, customer_id: str) -> ToolResult:
-        return ToolResult(self.name, "transaction_details", {"customer_id": customer_id, "transactions": [{"date": "2026-09-12", "description": "Grocer", "amount": "-45.20"}]})
+        return ToolResult(self.name, "transaction_details", {"transactions": recent_transactions_for(customer_id)})
 
     def statement_request(self, customer_id: str) -> ToolResult:
         return ToolResult(self.name, "statement_request", {"customer_id": customer_id, "status": "queued", "delivery": "secure inbox"})
