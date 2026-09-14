@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 
 from ..llm import LLMProviderError, ThirdPartyLLM
-from ..logging import log_event, timed
+from ..observability import log_event, timed
 from ..pii import redact
 from ..security import require_scope
 from .specialists import AccountsAgent, ServiceAgent, TransactionAgent

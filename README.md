@@ -16,7 +16,7 @@ A production-oriented reference implementation of the supplied banking workflow 
 | MCP Servers | `app/mcp/servers.py` | Explicit typed tools: balance, transaction, statement, address, cheque book, and KYC. |
 | Third-party LLM | `app/llm.py` | Calls an externally hosted OpenAI-compatible `/chat/completions` endpoint only. |
 | Session Store | `app/store.py` | SQLite conversation history/shared state; mount `/data` in Docker. |
-| Observability & evaluation | `app/logging.py`, `app/main.py` | JSON logs include `trace_id`, intent, server/tool, durations, and failures for evaluation pipelines. |
+| Observability & evaluation | `app/observability.py`, `app/main.py` | JSON logs include `trace_id`, intent, server/tool, durations, and failures for evaluation pipelines. |
 
 ## Agent workflow and debugging
 
@@ -42,6 +42,8 @@ cp .env.example .env
 # Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, and a strong JWT_SECRET.
 pip install -r requirements.txt
 uvicorn app.main:app --reload
+# Equivalent direct module form (do not use a non-existent `app.py`):
+python -m app.main
 ```
 
 The LLM provider must expose OpenAI-compatible `POST /chat/completions`. The application does not make an LLM call without `LLM_API_KEY`; this enables safe local workflow tests only.

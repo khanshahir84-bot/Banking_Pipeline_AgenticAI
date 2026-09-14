@@ -1,19 +1,26 @@
 """FastAPI boundary: authentication, PII redaction, session ownership, and telemetry."""
 import logging
+import sys
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# `python app/main.py` puts the app directory first on sys.path. Add the
+# repository root so package imports resolve exactly as they do under Uvicorn.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .agents.coordinator import CoordinatorAgent
-from .config import settings
-from .logging import configure_logging, log_event, new_trace_id, trace_id_var
-from .pii import redact
-from .security import authenticated_user
-from .store import add_message, audit_workflow, ensure_session, history
-from .ui import chat_page
+from app.agents.coordinator import CoordinatorAgent
+from app.config import settings
+from app.observability import configure_logging, log_event, new_trace_id, trace_id_var
+from app.pii import redact
+from app.security import authenticated_user
+from app.store import add_message, audit_workflow, ensure_session, history
+from app.ui import chat_page
 
 logger = logging.getLogger(__name__)
 
@@ -96,3 +103,11 @@ async def chat(payload: ChatRequest, request: Request):
     add_message(payload.session_id, "assistant", safe_answer)
     audit_workflow(trace_id_var.get(), user["sub"], outcome.intent, outcome.tool, "completed")
     return ChatResponse(trace_id=trace_id_var.get(), intent=outcome.intent, response=safe_answer, tool=outcome.tool)
+
+
+if __name__ == "__main__":
+    # Direct execution is supported for local development; production should run
+    # the container command or `uvicorn app.main:app`.
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

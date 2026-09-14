@@ -2,7 +2,7 @@
 import logging
 from collections.abc import Callable
 
-from ..logging import log_event
+from ..observability import log_event
 from ..mcp.servers import AccountsMCPServer, ServiceMCPServer, ToolResult, TransactionsMCPServer
 
 logger = logging.getLogger(__name__)
