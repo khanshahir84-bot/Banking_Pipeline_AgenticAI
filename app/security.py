@@ -21,9 +21,14 @@ def authenticated_user(request: Request) -> dict:
     set ``AUTH_MODE=jwks`` plus issuer, audience, and bank identity-provider JWKS.
     """
     header = request.headers.get("authorization", "")
-    if not header.startswith("Bearer "):
+    if header.startswith("Bearer "):
+        token = header.removeprefix("Bearer ")
+    elif settings.auth_mode == "development" and settings.developer_token:
+        # The browser demo never receives this token. It is supplied by server
+        # configuration only, so a developer can exercise the UI locally.
+        token = settings.developer_token
+    else:
         raise HTTPException(401, "Bearer token required")
-    token = header.removeprefix("Bearer ")
     try:
         if settings.auth_mode == "jwks":
             if not settings.jwt_issuer or not settings.jwt_audience:

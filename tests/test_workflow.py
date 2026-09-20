@@ -21,6 +21,24 @@ def test_signed_demo_token_round_trip():
     assert jwt.decode(token,settings.jwt_secret,algorithms=["HS256"])["sub"] == "customer-42"
 
 
+def test_development_token_is_used_server_side_when_browser_omits_auth_header(monkeypatch):
+    from starlette.requests import Request
+    from app.security import authenticated_user
+
+    token = jwt.encode({"sub": "customer-42", "scope": "accounts:read"}, settings.jwt_secret, algorithm="HS256")
+    monkeypatch.setattr(settings, "developer_token", token)
+    user = authenticated_user(Request({"type": "http", "headers": []}))
+    assert user["sub"] == "customer-42"
+
+
+def test_browser_ui_does_not_render_or_send_a_bearer_token():
+    from app.ui import CHAT_PAGE
+
+    assert 'id="token"' not in CHAT_PAGE
+    assert "Authorization" not in CHAT_PAGE
+    assert "Welcome to Banksy" in CHAT_PAGE
+
+
 def test_public_package_interfaces():
     from app import __version__, create_app
     from app.agents import CoordinatorAgent
