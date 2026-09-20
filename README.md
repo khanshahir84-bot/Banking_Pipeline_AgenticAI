@@ -10,7 +10,7 @@ A production-oriented reference implementation of the supplied banking workflow 
 |---|---|---|
 | User interface/API | `app/main.py` | `/v1/chat`, correlation IDs, request validation, authenticated session boundary. |
 | Bank identity provider / Authorization | `app/security.py` | Validates bearer JWT and checks the minimum intent scope before any tool call. |
-| PII Redaction | `app/pii.py` | Redacts SSNs, account-like numbers, and emails before history, logs, and LLM prompts. |
+| Guardrails | `app/guardrails/` | Modular input PII redaction, prompt-injection, scope, and content-safety controls; plus output groundedness, content safety, and response validation. |
 | Coordinator Agent | `app/agents/coordinator.py` | Classifies deterministically, selects a fixed agent, applies scope gates, and synthesizes tool output. |
 | Accounts / Transaction / Service Agents | `app/agents/specialists.py` | One focused dispatcher per banking domain. |
 | MCP Servers | `app/mcp/servers.py` | Explicit typed tools: balance, transaction, statement, address, cheque book, and KYC. |
@@ -21,11 +21,10 @@ A production-oriented reference implementation of the supplied banking workflow 
 ## Agent workflow and debugging
 
 1. Middleware creates or accepts `X-Trace-Id`; use it to find every workflow hop in JSON logs.
-2. The API verifies the IdP token then redacts the input **before** persisting or prompting.
-3. The coordinator only recognizes allow-listed intents. It checks an intent-specific OAuth scope, then invokes one specialist.
-4. Specialists invoke a named MCP tool. The LLM cannot choose tools or arguments, reducing prompt-injection blast radius.
-5. A third-party LLM converts the already-approved, redacted tool result into customer language. If it is unavailable, the workflow returns a safe completion fallback and logs `llm_synthesis_failed`.
-6. `workflow_started`, `agent_tool_call`, `workflow_completed`, timing, and HTTP events make diagnosis easy. Do not log raw tokens, request bodies, or tool secrets.
+2. The API verifies the IdP token, then runs **input guardrails before persistence or prompting**. They redact SSNs, card/account-like values, emails, phones, and IBANs; block prompt-injection and unsafe requests; require an allow-listed banking intent; and enforce the corresponding OAuth scope.
+3. The coordinator repeats the intent-scope authorization as defense in depth, then invokes one fixed specialist. Specialists invoke a named MCP tool; the LLM cannot choose tools or arguments.
+4. The LLM receives only redacted, approved tool output. **Output guardrails** validate response shape (no links, secret requests, control characters, or PII), reject unsafe content, and check financial/status claims against approved tool data. A rejected or unavailable model response is replaced with a deterministic rendering of that same approved data.
+5. `input_guardrails_passed`, `guardrail_blocked`, `llm_output_replaced`, `workflow_started`, `agent_tool_call`, `workflow_completed`, timing, and HTTP events make diagnosis easy. Events contain decision names/categories—not raw prompts, tokens, or secrets.
 
 ### Scope map
 
@@ -76,6 +75,12 @@ docker compose up --build
 ```bash
 pytest -q
 ```
+
+## Guardrail policy and traceability
+
+Guardrails are deterministic, testable modules rather than a model prompt. `InputGuardrails` returns a sanitized message and non-sensitive findings; rejected input is not saved to session history or sent to a specialist/LLM. `OutputGuardrails` receives both the candidate response and the MCP-approved data, and validates every response path, including the deterministic fallback. Trace logs record the guardrail stage, reason, and rule categories, while `workflow_audit` records a non-sensitive blocked outcome.
+
+The policy is intentionally conservative: unsupported requests are rejected at the banking boundary, and a caller missing an intent scope receives an authorization-safe denial. Prompt-injection rules target system/developer/tool boundary manipulation rather than ordinary banking wording. The content-safety policy is not a substitute for a bank’s wider fraud, AML, emergency, or human-escalation program; extend the rule sets and response procedures under the bank’s governance process.
 
 ## Security review fixes applied
 

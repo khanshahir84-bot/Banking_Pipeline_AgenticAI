@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.agents.coordinator import CoordinatorAgent
+from app.guardrails import GuardrailRejected, InputGuardrails
 from app.config import settings
 from app.observability import configure_logging, log_event, new_trace_id, trace_id_var
 from app.pii import redact
@@ -86,7 +87,15 @@ async def chat(payload: ChatRequest, request: Request):
     except PermissionError as exc:
         raise HTTPException(403, "Session is not owned by authenticated user") from exc
 
-    safe_message = redact(payload.message)
+    try:
+        assessment = InputGuardrails().assess(payload.message, user)
+    except GuardrailRejected as exc:
+        log_event(logger, "guardrail_blocked", stage=exc.stage.value, reason=exc.reason, categories=exc.finding.categories)
+        audit_workflow(trace_id_var.get(), user["sub"], None, None, f"{exc.stage.value}_blocked:{exc.reason}")
+        raise HTTPException(400 if exc.reason != "scope_validation" else 403, exc.public_message) from exc
+
+    safe_message = assessment.sanitized_message
+    log_event(logger, "input_guardrails_passed", intent=assessment.intent, findings=[finding.name for finding in assessment.findings])
     prior_history = history(payload.session_id)
     add_message(payload.session_id, "user", safe_message)
     try:
