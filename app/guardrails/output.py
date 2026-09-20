@@ -51,7 +51,7 @@ class OutputGuardrails:
             return f"Your available balance is {balance}{suffix}."
         transactions = approved_data.get("transactions")
         if isinstance(transactions, list):
-            return f"I found {len(transactions)} recent transactions in your approved banking record."
+            return f"I found {len(transactions)} recent transactions in your banking record."
         return "Your request was completed. Please check your secure banking channel for the result."
 
     @staticmethod

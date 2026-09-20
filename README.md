@@ -37,8 +37,8 @@ A production-oriented reference implementation of the supplied banking workflow 
 ## Configure and run
 
 ```bash
-cp .env.example .env
-# Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, and a strong JWT_SECRET.
+cp ".env copy.example" .env
+# Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, a strong JWT_SECRET, and DEVELOPER_TOKEN.
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 # Equivalent direct module form (do not use a non-existent `app.py`):
@@ -47,11 +47,33 @@ python -m app.main
 
 The LLM provider must expose OpenAI-compatible `POST /chat/completions`. The application does not make an LLM call without `LLM_API_KEY`; this enables safe local workflow tests only.
 
-Create a **development-only** token:
+### Authentication configuration
+
+For the development browser UI, set all three of the following values in `.env`:
+
+```dotenv
+AUTH_MODE=development
+JWT_SECRET=<a-long-random-development-secret>
+DEVELOPER_TOKEN=<an-HS256-JWT-signed-with-JWT_SECRET>
+```
+
+`DEVELOPER_TOKEN` must contain a JWT `sub` claim and the scopes needed by the
+demo prompts: `accounts:read transactions:read service:write`. Create a
+**development-only** token with the same value configured as `JWT_SECRET`, then
+copy its complete output into `DEVELOPER_TOKEN` in `.env`:
 
 ```bash
 python -c 'import jwt; print(jwt.encode({"sub":"customer-42","scope":"accounts:read transactions:read service:write"}, "change-me-before-production", algorithm="HS256"))'
 ```
+
+The browser UI uses this server-side configuration, so the token is never
+rendered in the page or sent from the browser. Direct API callers can still send
+their own bearer token in the `Authorization` header.
+
+For production, do **not** use `AUTH_MODE=development` or `DEVELOPER_TOKEN`.
+Use `AUTH_MODE=jwks` and set all of `JWT_ISSUER`, `JWT_AUDIENCE`, and
+`JWT_JWKS_URL` to the bank identity provider's values. The application validates
+the issuer, audience, and RS256/ES256 JWT signature in that mode.
 
 Call the API:
 
@@ -64,7 +86,7 @@ curl -X POST http://localhost:8000/v1/chat \
 ## Docker
 
 ```bash
-cp .env.example .env  # set real provider credentials and JWT_SECRET
+cp ".env copy.example" .env  # set real provider credentials and JWT_SECRET
 docker compose up --build
 ```
 
@@ -88,7 +110,7 @@ This implementation now additionally binds every session ID to the authenticated
 
 For a bank deployment, set `AUTH_MODE=jwks`, `JWT_ISSUER`, `JWT_AUDIENCE`, and `JWT_JWKS_URL`; the service will validate the JWT signature using the IdP key and enforce issuer/audience claims. `AUTH_MODE=development` is only for the local HS256 token command above. Set `LLM_REQUIRED=true` so a missing third-party provider credential fails safely rather than selecting the demonstration text fallback.
 
-The browser page at `/` is a dependency-free, same-origin demo chat UI. It is not an identity UI: production users should authenticate through the bank's existing OIDC front end/BFF, which forwards a short-lived bearer token. Do not persist tokens in browser storage.
+The browser page at `/` is a dependency-free, same-origin demo chat UI. In development it uses the server-side `DEVELOPER_TOKEN`; the token is not placed in the page or browser storage. It is not a production identity UI: production users should authenticate through the bank's existing OIDC front end/BFF, which forwards a short-lived bearer token.
 
 ### MCP integration contract
 
