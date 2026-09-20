@@ -10,7 +10,7 @@ A production-oriented reference implementation of the supplied banking workflow 
 |---|---|---|
 | User interface/API | `app/main.py` | `/v1/chat`, correlation IDs, request validation, authenticated session boundary. |
 | Bank identity provider / Authorization | `app/security.py` | Validates bearer JWT and checks the minimum intent scope before any tool call. |
-| PII Redaction | `app/pii.py` | Redacts SSNs, account-like numbers, and emails before history, logs, and LLM prompts. |
+| Guardrails | `app/guardrails/` | Modular input PII redaction, prompt-injection, scope, and content-safety controls; plus output groundedness, content safety, and response validation. |
 | Coordinator Agent | `app/agents/coordinator.py` | Classifies deterministically, selects a fixed agent, applies scope gates, and synthesizes tool output. |
 | Accounts / Transaction / Service Agents | `app/agents/specialists.py` | One focused dispatcher per banking domain. |
 | MCP Servers | `app/mcp/servers.py` | Explicit typed tools: balance, transaction, statement, address, cheque book, and KYC. |
@@ -21,11 +21,10 @@ A production-oriented reference implementation of the supplied banking workflow 
 ## Agent workflow and debugging
 
 1. Middleware creates or accepts `X-Trace-Id`; use it to find every workflow hop in JSON logs.
-2. The API verifies the IdP token then redacts the input **before** persisting or prompting.
-3. The coordinator only recognizes allow-listed intents. It checks an intent-specific OAuth scope, then invokes one specialist.
-4. Specialists invoke a named MCP tool. The LLM cannot choose tools or arguments, reducing prompt-injection blast radius.
-5. A third-party LLM converts the already-approved, redacted tool result into customer language. If it is unavailable, the workflow returns a safe completion fallback and logs `llm_synthesis_failed`.
-6. `workflow_started`, `agent_tool_call`, `workflow_completed`, timing, and HTTP events make diagnosis easy. Do not log raw tokens, request bodies, or tool secrets.
+2. The API verifies the IdP token, then runs **input guardrails before persistence or prompting**. They redact SSNs, card/account-like values, emails, phones, and IBANs; block prompt-injection and unsafe requests; require an allow-listed banking intent; and enforce the corresponding OAuth scope.
+3. The coordinator repeats the intent-scope authorization as defense in depth, then invokes one fixed specialist. Specialists invoke a named MCP tool; the LLM cannot choose tools or arguments.
+4. The LLM receives only redacted, approved tool output. **Output guardrails** validate response shape (no links, secret requests, control characters, or PII), reject unsafe content, and check financial/status claims against approved tool data. A rejected or unavailable model response is replaced with a deterministic rendering of that same approved data.
+5. `input_guardrails_passed`, `guardrail_blocked`, `llm_output_replaced`, `workflow_started`, `agent_tool_call`, `workflow_completed`, timing, and HTTP events make diagnosis easy. Events contain decision names/categories—not raw prompts, tokens, or secrets.
 
 ### Scope map
 
@@ -38,8 +37,8 @@ A production-oriented reference implementation of the supplied banking workflow 
 ## Configure and run
 
 ```bash
-cp .env.example .env
-# Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, and a strong JWT_SECRET.
+cp ".env copy.example" .env
+# Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, a strong JWT_SECRET, and DEVELOPER_TOKEN.
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 # Equivalent direct module form (do not use a non-existent `app.py`):
@@ -48,11 +47,33 @@ python -m app.main
 
 The LLM provider must expose OpenAI-compatible `POST /chat/completions`. The application does not make an LLM call without `LLM_API_KEY`; this enables safe local workflow tests only.
 
-Create a **development-only** token:
+### Authentication configuration
+
+For the development browser UI, set all three of the following values in `.env`:
+
+```dotenv
+AUTH_MODE=development
+JWT_SECRET=<a-long-random-development-secret>
+DEVELOPER_TOKEN=<an-HS256-JWT-signed-with-JWT_SECRET>
+```
+
+`DEVELOPER_TOKEN` must contain a JWT `sub` claim and the scopes needed by the
+demo prompts: `accounts:read transactions:read service:write`. Create a
+**development-only** token with the same value configured as `JWT_SECRET`, then
+copy its complete output into `DEVELOPER_TOKEN` in `.env`:
 
 ```bash
 python -c 'import jwt; print(jwt.encode({"sub":"customer-42","scope":"accounts:read transactions:read service:write"}, "change-me-before-production", algorithm="HS256"))'
 ```
+
+The browser UI uses this server-side configuration, so the token is never
+rendered in the page or sent from the browser. Direct API callers can still send
+their own bearer token in the `Authorization` header.
+
+For production, do **not** use `AUTH_MODE=development` or `DEVELOPER_TOKEN`.
+Use `AUTH_MODE=jwks` and set all of `JWT_ISSUER`, `JWT_AUDIENCE`, and
+`JWT_JWKS_URL` to the bank identity provider's values. The application validates
+the issuer, audience, and RS256/ES256 JWT signature in that mode.
 
 Call the API:
 
@@ -65,7 +86,7 @@ curl -X POST http://localhost:8000/v1/chat \
 ## Docker
 
 ```bash
-cp .env.example .env  # set real provider credentials and JWT_SECRET
+cp ".env copy.example" .env  # set real provider credentials and JWT_SECRET
 docker compose up --build
 ```
 
@@ -77,13 +98,19 @@ docker compose up --build
 pytest -q
 ```
 
+## Guardrail policy and traceability
+
+Guardrails are deterministic, testable modules rather than a model prompt. `InputGuardrails` returns a sanitized message and non-sensitive findings; rejected input is not saved to session history or sent to a specialist/LLM. `OutputGuardrails` receives both the candidate response and the MCP-approved data, and validates every response path, including the deterministic fallback. Trace logs record the guardrail stage, reason, and rule categories, while `workflow_audit` records a non-sensitive blocked outcome.
+
+The policy is intentionally conservative: unsupported requests are rejected at the banking boundary, and a caller missing an intent scope receives an authorization-safe denial. Prompt-injection rules target system/developer/tool boundary manipulation rather than ordinary banking wording. The content-safety policy is not a substitute for a bank’s wider fraud, AML, emergency, or human-escalation program; extend the rule sets and response procedures under the bank’s governance process.
+
 ## Security review fixes applied
 
 This implementation now additionally binds every session ID to the authenticated subject, records a minimal workflow audit trail, validates session-ID format, returns a trace ID with HTTP errors, and redacts generated LLM text before returning or storing it. The API deliberately does **not** place a raw message or conversation history in application logs.
 
 For a bank deployment, set `AUTH_MODE=jwks`, `JWT_ISSUER`, `JWT_AUDIENCE`, and `JWT_JWKS_URL`; the service will validate the JWT signature using the IdP key and enforce issuer/audience claims. `AUTH_MODE=development` is only for the local HS256 token command above. Set `LLM_REQUIRED=true` so a missing third-party provider credential fails safely rather than selecting the demonstration text fallback.
 
-The browser page at `/` is a dependency-free, same-origin demo chat UI. It is not an identity UI: production users should authenticate through the bank's existing OIDC front end/BFF, which forwards a short-lived bearer token. Do not persist tokens in browser storage.
+The browser page at `/` is a dependency-free, same-origin demo chat UI. In development it uses the server-side `DEVELOPER_TOKEN`; the token is not placed in the page or browser storage. It is not a production identity UI: production users should authenticate through the bank's existing OIDC front end/BFF, which forwards a short-lived bearer token.
 
 ### MCP integration contract
 
