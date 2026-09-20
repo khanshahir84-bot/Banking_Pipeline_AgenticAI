@@ -39,6 +39,51 @@ def test_browser_ui_does_not_render_or_send_a_bearer_token():
     assert "Welcome to Banksy" in CHAT_PAGE
 
 
+def test_transaction_fallback_passes_output_guardrails(tmp_path, monkeypatch):
+    from app.agents.coordinator import _sanitize_approved_data
+    from app.guardrails import OutputGuardrails
+    from app.mcp.servers import TransactionsMCPServer
+    from scripts.seed_database import seed
+
+    monkeypatch.setattr(settings, "database_path", str(tmp_path / "transactions.db"))
+    seed(settings.database_path)
+    approved_data = _sanitize_approved_data(TransactionsMCPServer().transaction_details("customer-42").data)
+    fallback = OutputGuardrails().fallback(approved_data)
+    assert OutputGuardrails().assess(fallback, approved_data).response == fallback
+
+
+def test_coordinator_uses_safe_message_when_a_fallback_is_rejected(tmp_path, monkeypatch):
+    from app.agents.coordinator import CoordinatorAgent
+    from app.guardrails import OutputGuardrails
+    from app.llm import LLMProviderError, ThirdPartyLLM
+    from scripts.seed_database import seed
+
+    class RejectedFallbackGuardrails(OutputGuardrails):
+        def fallback(self, approved_data):
+            return "This result is approved."
+
+    async def unavailable_model(self, system, prompt):
+        raise LLMProviderError("test provider outage")
+
+    monkeypatch.setattr(settings, "database_path", str(tmp_path / "transactions.db"))
+    monkeypatch.setattr(ThirdPartyLLM, "complete", unavailable_model)
+    seed(settings.database_path)
+    outcome = asyncio.run(CoordinatorAgent(RejectedFallbackGuardrails()).run("show my transactions", {"sub": "customer-42", "scope": "transactions:read"}, []))
+    assert outcome.answer == "I could not safely display that result. Please check your secure banking channel."
+
+
+def test_developer_token_does_not_bypass_jwks_authentication(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from app.security import authenticated_user
+
+    monkeypatch.setattr(settings, "auth_mode", "jwks")
+    monkeypatch.setattr(settings, "developer_token", "development-only-token")
+    with pytest.raises(HTTPException, match="Bearer token required"):
+        authenticated_user(Request({"type": "http", "headers": []}))
+
+
 def test_public_package_interfaces():
     from app import __version__, create_app
     from app.agents import CoordinatorAgent

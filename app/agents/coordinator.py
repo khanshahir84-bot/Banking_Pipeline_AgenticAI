@@ -56,9 +56,22 @@ class CoordinatorAgent:
             answer = self._output_guardrails.assess(candidate, approved_data).response
         except (LLMProviderError, GuardrailRejected) as exc:
             log_event(logger, "llm_output_replaced", intent=intent, tool=result.tool, reason=getattr(exc, "reason", "provider_failure"))
-            answer = self._output_guardrails.assess(self._output_guardrails.fallback(approved_data), approved_data).response
+            answer = self._validated_fallback(approved_data, intent, result.tool)
         log_event(logger, "workflow_completed", intent=intent, server=result.server, tool=result.tool)
         return WorkflowResult(intent, answer, result.tool)
+
+    def _validated_fallback(self, approved_data: dict[str, Any], intent: str, tool: str) -> str:
+        """Validate a deterministic result and retain a safe last-resort response.
+
+        A fallback must never turn an otherwise safely handled model rejection
+        into an unhandled workflow failure. The final message is a static,
+        non-sensitive completion notice and does not assert a banking outcome.
+        """
+        try:
+            return self._output_guardrails.assess(self._output_guardrails.fallback(approved_data), approved_data).response
+        except GuardrailRejected as exc:
+            log_event(logger, "fallback_output_replaced", intent=intent, tool=tool, reason=exc.reason)
+            return "I could not safely display that result. Please check your secure banking channel."
 
 
 def _sanitize_approved_data(data: dict[str, Any]) -> dict[str, Any]:

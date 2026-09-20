@@ -8,8 +8,9 @@ LLM_REQUIRED=true
 # development is only for local demonstrations. Production must use jwks.
 AUTH_MODE=development
 JWT_SECRET=change-me-before-production
-# Development browser demo only. Create an HS256 token with the JWT_SECRET and
-# the scopes needed for the sample requests; this value is kept server-side.
+# Development browser demo only. Set this to an HS256 JWT signed with JWT_SECRET
+# and including sub plus accounts:read, transactions:read, and service:write
+# scopes. This value stays on the server; never commit a real token.
 DEVELOPER_TOKEN=
 # Production OIDC/JWKS settings (required when AUTH_MODE=jwks)
 JWT_ISSUER=https://idp.bank.example
