@@ -37,8 +37,8 @@ A production-oriented reference implementation of the supplied banking workflow 
 ## Configure and run
 
 ```bash
-cp .env.example .env
-# Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, and a strong JWT_SECRET.
+cp ".env copy.example" .env
+# Set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, a strong JWT_SECRET, and DEVELOPER_TOKEN.
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 # Equivalent direct module form (do not use a non-existent `app.py`):
@@ -47,7 +47,10 @@ python -m app.main
 
 The LLM provider must expose OpenAI-compatible `POST /chat/completions`. The application does not make an LLM call without `LLM_API_KEY`; this enables safe local workflow tests only.
 
-Create a **development-only** token:
+Create a **development-only** token and save it as `DEVELOPER_TOKEN` in `.env`.
+The browser UI uses that server-side configuration, so the token is never rendered
+in the page or sent from the browser. Direct API callers can still send their own
+bearer token in the `Authorization` header.
 
 ```bash
 python -c 'import jwt; print(jwt.encode({"sub":"customer-42","scope":"accounts:read transactions:read service:write"}, "change-me-before-production", algorithm="HS256"))'
@@ -64,7 +67,7 @@ curl -X POST http://localhost:8000/v1/chat \
 ## Docker
 
 ```bash
-cp .env.example .env  # set real provider credentials and JWT_SECRET
+cp ".env copy.example" .env  # set real provider credentials and JWT_SECRET
 docker compose up --build
 ```
 
@@ -88,7 +91,7 @@ This implementation now additionally binds every session ID to the authenticated
 
 For a bank deployment, set `AUTH_MODE=jwks`, `JWT_ISSUER`, `JWT_AUDIENCE`, and `JWT_JWKS_URL`; the service will validate the JWT signature using the IdP key and enforce issuer/audience claims. `AUTH_MODE=development` is only for the local HS256 token command above. Set `LLM_REQUIRED=true` so a missing third-party provider credential fails safely rather than selecting the demonstration text fallback.
 
-The browser page at `/` is a dependency-free, same-origin demo chat UI. It is not an identity UI: production users should authenticate through the bank's existing OIDC front end/BFF, which forwards a short-lived bearer token. Do not persist tokens in browser storage.
+The browser page at `/` is a dependency-free, same-origin demo chat UI. In development it uses the server-side `DEVELOPER_TOKEN`; the token is not placed in the page or browser storage. It is not a production identity UI: production users should authenticate through the bank's existing OIDC front end/BFF, which forwards a short-lived bearer token.
 
 ### MCP integration contract
 

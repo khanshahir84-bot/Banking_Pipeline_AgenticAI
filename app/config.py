@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     llm_required: bool = False
     auth_mode: str = "development"  # development or jwks
     jwt_secret: str = "change-me-before-production"
+    developer_token: str = ""
     jwt_issuer: str = ""
     jwt_audience: str = ""
     jwt_jwks_url: str = ""
